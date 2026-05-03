@@ -124,6 +124,7 @@ function EffectsPanel({ effects, onChange }) {
                 key={slider.key}
                 value={effects[slider.key]}
                 onChange={(value) => onChange(slider.key, value)}
+                data-demo-target={slider.key}
                 {...slider}
               />
             ))}

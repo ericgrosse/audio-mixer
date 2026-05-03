@@ -48,11 +48,16 @@ function PresetControls({ onPreset, onReset }) {
       </div>
       <div className="preset-buttons">
         {presets.map((preset) => (
-          <button type="button" key={preset.name} onClick={() => onPreset(preset.values)}>
+          <button
+            type="button"
+            key={preset.name}
+            data-demo-target={`preset-${preset.name.toLowerCase().replaceAll(' ', '-')}`}
+            onClick={() => onPreset(preset.values)}
+          >
             {preset.name}
           </button>
         ))}
-        <button className="reset-button" type="button" onClick={onReset}>
+        <button className="reset-button" type="button" data-demo-target="reset" onClick={onReset}>
           <RotateCcw size={16} aria-hidden="true" />
           Reset
         </button>

@@ -168,6 +168,8 @@ export function useAudioEngine() {
   const contextRef = useRef(null);
   const sourceRef = useRef(null);
   const nodesRef = useRef({});
+  const recorderRef = useRef(null);
+  const recordingChunksRef = useRef([]);
   const animationRef = useRef(null);
   const shouldPlayAfterSeekRef = useRef(false);
 
@@ -204,6 +206,7 @@ export function useAudioEngine() {
     const reverb = audioContext.createConvolver();
     const pan = audioContext.createStereoPanner();
     const analyser = audioContext.createAnalyser();
+    const recorderDestination = audioContext.createMediaStreamDestination();
 
     bass.type = 'lowshelf';
     bass.frequency.value = 180;
@@ -233,6 +236,7 @@ export function useAudioEngine() {
     dryGain.connect(pan);
     wetGain.connect(pan);
     pan.connect(analyser);
+    pan.connect(recorderDestination);
     analyser.connect(audioContext.destination);
 
     contextRef.current = audioContext;
@@ -246,6 +250,7 @@ export function useAudioEngine() {
       mid,
       pan,
       pitchShifter,
+      recorderDestination,
       treble,
       volume,
       wetGain
@@ -368,6 +373,50 @@ export function useAudioEngine() {
     }
   }, [applyEffects, audioUrl, effects, ensureAudioContext]);
 
+  const startRecording = useCallback(async () => {
+    const audioContext = ensureAudioContext();
+    const stream = nodesRef.current.recorderDestination?.stream;
+
+    if (!audioContext || !stream || recorderRef.current) {
+      return;
+    }
+
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+
+    recordingChunksRef.current = [];
+    const recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        recordingChunksRef.current.push(event.data);
+      }
+    };
+    recorder.start(250);
+    recorderRef.current = recorder;
+  }, [ensureAudioContext]);
+
+  const stopRecording = useCallback(() => {
+    const recorder = recorderRef.current;
+
+    if (!recorder) {
+      return Promise.resolve('');
+    }
+
+    return new Promise((resolve) => {
+      recorder.onstop = () => {
+        const blob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        recorderRef.current = null;
+        recordingChunksRef.current = [];
+
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      };
+      recorder.stop();
+    });
+  }, []);
+
   const restart = useCallback(async () => {
     const audio = audioRef.current;
     if (!audio || !audioUrl) {
@@ -484,6 +533,8 @@ export function useAudioEngine() {
     resetEffects,
     restart,
     seek,
+    startRecording,
+    stopRecording,
     togglePlayback,
     updateEffect
   };

@@ -5,13 +5,11 @@ const { chromium } = require('C:/Users/ericg/.cache/codex-runtimes/codex-primary
 const projectRoot = path.resolve(__dirname, '..');
 const outputDir = path.join(projectRoot, 'demo-recordings');
 const edgePath = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
-const frameRate = 4;
-const durationSeconds = 54.5;
 
 async function main() {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const framesDir = path.join(outputDir, `frames-${stamp}`);
-  await fs.mkdir(framesDir, { recursive: true });
+  const rawDir = path.join(outputDir, 'raw');
+  await fs.mkdir(rawDir, { recursive: true });
 
   const browser = await chromium.launch({
     executablePath: edgePath,
@@ -20,26 +18,46 @@ async function main() {
   });
 
   const context = await browser.newContext({
-    viewport: { width: 1600, height: 900 }
+    viewport: { width: 1600, height: 900 },
+    recordVideo: {
+      dir: rawDir,
+      size: { width: 1600, height: 900 }
+    }
   });
 
+  const recordStart = Date.now();
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:3000/?demoVideo=1', { waitUntil: 'networkidle' });
   await page.getByText('Jurassic Park 2 The Chaos Continues', { exact: false }).waitFor({ timeout: 15000 });
+  await page.waitForFunction(() => window.__runAudioMixerDemo && window.__stopAudioMixerDemoRecording);
+  const durationMs = await page.evaluate(() => window.__audioMixerDemoDurationMs);
 
-  await page.getByRole('button', { name: 'Play audio' }).click();
+  const trimOffsetSeconds = (Date.now() - recordStart) / 1000;
+  await page.evaluate(() => {
+    window.__runAudioMixerDemo();
+    return true;
+  });
+  await page.waitForTimeout(durationMs + 1000);
 
-  const totalFrames = Math.ceil(durationSeconds * frameRate);
-  for (let frame = 0; frame < totalFrames; frame += 1) {
-    const framePath = path.join(framesDir, `frame-${String(frame).padStart(4, '0')}.png`);
-    await page.screenshot({ path: framePath });
-    await page.waitForTimeout(1000 / frameRate);
-  }
+  const audioDataUrl = await page.evaluate(() => {
+    if (window.__audioMixerDemoRecordingDataUrl) {
+      return window.__audioMixerDemoRecordingDataUrl;
+    }
+    return window.__stopAudioMixerDemoRecording();
+  });
+  const audioBase64 = audioDataUrl.split(',')[1];
+  const audioPath = path.join(outputDir, `processed-audio-${stamp}.webm`);
+  await fs.writeFile(audioPath, Buffer.from(audioBase64, 'base64'));
 
+  const video = page.video();
   await context.close();
   await browser.close();
 
-  console.log(framesDir);
+  const rawVideoPath = await video.path();
+  const videoPath = path.join(outputDir, `smooth-video-${stamp}.webm`);
+  await fs.copyFile(rawVideoPath, videoPath);
+
+  console.log(JSON.stringify({ audioPath, durationSeconds: durationMs / 1000, trimOffsetSeconds, videoPath }));
 }
 
 main().catch((error) => {
